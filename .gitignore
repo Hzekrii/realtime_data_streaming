@@ -1,0 +1,16 @@
+# Virtual environment
+virtual-env/
+venv/
+.env/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Airflow logs
+logs/
+airflow.db
+
+# IDE
+.vscode/
+.idea/
