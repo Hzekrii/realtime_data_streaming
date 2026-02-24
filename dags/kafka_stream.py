@@ -1,10 +1,12 @@
 from datetime import datetime
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
 
 default_args = {
     'owner': 'airscholar',
-    'start_date': datetime(2024, 6, 1)
+    'start_date': days_ago(1),
+    'retries': 1,
 }
 
 def get_data():
@@ -42,18 +44,25 @@ def stream_data():
 
         res = get_data()
         res = format_data(res)
-        # print(json.dumps(res, indent=3))
-        producer = KafkaProducer(bootstrap_servers=['localhost:9092'],max_block_ms=5000)
-        producer.send('user_data', json.dumps(res).encode('utf-8'))
-        
-# with DAG('user_automation',
-#          default_args=default_args,
-#          schedule_interval='@daily',
-#          catchup=False) as dag:
-       
-#     streaming_task = PythonOperator(
-#         task_id='stream_data_from_api',
-#         python_callable=stream_data
-#     )
+        producer = KafkaProducer(
+                bootstrap_servers=['broker:29092']
+        )
 
-stream_data()
+        producer.send('user_data', json.dumps(res).encode('utf-8'))
+        producer.flush()
+        producer.close()
+        return None
+        
+with DAG(
+        'user_automation',
+         default_args=default_args,
+         schedule_interval=None,
+         catchup=False
+) as dag:
+       
+    streaming_task = PythonOperator(
+        task_id='stream_data_from_api',
+        python_callable=stream_data,
+        do_xcom_push=False
+   )
+

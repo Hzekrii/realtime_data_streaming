@@ -69,6 +69,67 @@ services:
       PORT: 9021
     networks:
       - confluent
+  webserver:
+    image: apache/airflow:2.6.0-python3.9
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__WEBSERVER__SECRET_KEY: this_is_a_very_secured_key
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
 
+    ports:
+      - "8080:8080"
+    command: >
+      bash -c "
+      pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
+      airflow webserver
+      "
+    networks:
+      - confluent 
+
+  scheduler:
+    image: apache/airflow:2.6.0-python3.9
+
+    depends_on:
+      - webserver
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__WEBSERVER__SECRET_KEY: this_is_a_very_secured_key
+    command: >
+      bash -c "
+      pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
+      airflow scheduler
+      "
+    networks:
+      - confluent
+
+  postgres:
+    image: postgres:14.0
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"  
+    networks:
+      - confluent
 networks:
   confluent:
