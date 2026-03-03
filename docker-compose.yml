@@ -143,6 +143,8 @@ services:
     ports:
       - "7077:7077"
       - "8083:8080"
+    volumes:
+      - ./spark:/opt/spark-apps
     networks:
       - confluent
 
@@ -165,6 +167,24 @@ services:
       - "9042:9042"
     networks:
       - confluent
-      
+  
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - confluent
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - confluent
+
 networks:
   confluent:
