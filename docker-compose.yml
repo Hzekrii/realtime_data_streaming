@@ -24,6 +24,7 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
@@ -33,6 +34,21 @@ services:
       KAFKA_JMX_HOSTNAME: localhost
       CONFLUENT_METRICS_ENABLE: "false"
       CONFLUENT_SUPPORT_CUSTOMER_ID: "anonymous"
+      # ✅ FIX 1: Disable Confluent telemetry completely
+      KAFKA_CONFLUENT_TELEMETRY_ENABLED: "false"
+      KAFKA_METRIC_REPORTERS: ""
+      KAFKA_CONFLUENT_SCHEMA_REGISTRY_URL: ""
+      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote \
+        -Dcom.sun.management.jmxremote.authenticate=false \
+        -Dcom.sun.management.jmxremote.ssl=false \
+        -Dcom.sun.management.jmxremote.rmi.port=9101"
+    # ✅ FIX 2: Use reliable TCP port check instead of kafka-topics
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/9092' 2>/dev/null && echo 'Broker Ready' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
     networks:
       - confluent
 
@@ -69,6 +85,7 @@ services:
       PORT: 9021
     networks:
       - confluent
+
   webserver:
     image: apache/airflow:2.6.0-python3.9
     depends_on:
@@ -79,6 +96,7 @@ services:
       AIRFLOW__WEBSERVER__SECRET_KEY: this_is_a_very_secured_key
       _AIRFLOW_WWW_USER_USERNAME: admin
       _AIRFLOW_WWW_USER_PASSWORD: admin
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     logging:
       options:
         max-size: "10m"
@@ -87,20 +105,15 @@ services:
       - ./dags:/opt/airflow/dags
       - ./requirements.txt:/opt/airflow/requirements.txt
       - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
-
     ports:
       - "8080:8080"
-    command: >
-      bash -c "
-      pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
-      airflow webserver
-      "
+    # ✅ Single line user create command - fixes formatting issue
+    command: bash -c "pip install --no-cache-dir -r /opt/airflow/requirements.txt && airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin 2>/dev/null || true && airflow webserver"
     networks:
-      - confluent 
+      - confluent
 
   scheduler:
     image: apache/airflow:2.6.0-python3.9
-
     depends_on:
       - webserver
     volumes:
@@ -111,11 +124,8 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__WEBSERVER__SECRET_KEY: this_is_a_very_secured_key
-    command: >
-      bash -c "
-      pip install --no-cache-dir -r /opt/airflow/requirements.txt &&
-      airflow scheduler
-      "
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    command: bash -c "pip install --no-cache-dir -r /opt/airflow/requirements.txt && airflow db init && airflow scheduler"
     networks:
       - confluent
 
@@ -128,10 +138,9 @@ services:
     logging:
       options:
         max-size: "10m"
-        max-file: "3"  
+        max-file: "3"
     networks:
       - confluent
-  
 
   spark-master:
     image: apache/spark:3.5.0
@@ -139,7 +148,7 @@ services:
     command: >
       bash -c "
       /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
-       "
+      "
     ports:
       - "7077:7077"
       - "8083:8080"
@@ -159,15 +168,40 @@ services:
       - spark-master
     networks:
       - confluent
-  
+
   cassandra:
     image: cassandra:4.1
     container_name: cassandra
     ports:
       - "9042:9042"
+      - "7199:7199"
+    environment:
+      - LOCAL_JMX=no
+      - JMX_PORT=7199
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+      # ✅ Override the env script that controls JMX
+      - ./cassandra/cassandra-env.sh:/etc/cassandra/cassandra-env.sh
+      # ✅ Provide required password files
+      - ./cassandra/jmxremote.password:/etc/cassandra/jmxremote.password
+      - ./cassandra/jmxremote.access:/etc/cassandra/jmxremote.access
+    # ✅ Fix file permissions on startup
+    command: >
+      bash -c "
+      chmod 400 /etc/cassandra/jmxremote.password &&
+      chmod 400 /etc/cassandra/jmxremote.access &&
+      chmod 755 /etc/cassandra/cassandra-env.sh &&
+      docker-entrypoint.sh cassandra -f
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 15
+      start_period: 90s
     networks:
       - confluent
-  
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -186,5 +220,41 @@ services:
     networks:
       - confluent
 
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    ports:
+      - "9308:9308"
+    command:
+      - "--kafka.server=broker:29092"
+      - "--web.listen-address=:9308"
+    depends_on:
+      broker:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - confluent
+
+  # cassandra-exporter:
+  #   image: sscaling/jmx-prometheus-exporter:latest
+  #   container_name: cassandra-exporter
+  #   ports:
+  #     - "8086:5556"
+  #   environment:
+  #     - CONFIG_YML=/opt/jmx_exporter/config.yml
+  #   volumes:
+  #     - ./monitoring/jmx-cassandra.yml:/opt/jmx_exporter/config.yml
+  #   depends_on:
+  #     cassandra:
+  #       condition: service_healthy
+  #   restart: on-failure
+  #   networks:
+  #     - confluent
+
+# ======================================
 networks:
   confluent:
+volumes:
+  cassandra_data:
+    driver: local
+# ======================================

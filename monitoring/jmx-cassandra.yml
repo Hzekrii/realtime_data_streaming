@@ -1,0 +1,35 @@
+---
+startDelaySeconds: 30
+hostPort: cassandra:7199
+ssl: false
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+rules:
+  # ✅ Only collect essential metrics (faster response)
+  - pattern: 'org.apache.cassandra.metrics<type=ClientRequest, scope=Read, name=Latency><>(\w+)'
+    name: cassandra_read_latency_\$1
+    type: GAUGE
+
+  - pattern: 'org.apache.cassandra.metrics<type=ClientRequest, scope=Write, name=Latency><>(\w+)'
+    name: cassandra_write_latency_\$1
+    type: GAUGE
+
+  - pattern: 'org.apache.cassandra.metrics<type=Cache, scope=KeyCache, name=HitRate><>Value'
+    name: cassandra_keycache_hitrate
+    type: GAUGE
+
+  - pattern: 'org.apache.cassandra.metrics<type=ThreadPools, path=request, scope=(\w+), name=ActiveTasks><>Value'
+    name: cassandra_threadpool_active_\$1
+    type: GAUGE
+
+  - pattern: 'org.apache.cassandra.metrics<type=Storage, name=Load><>Count'
+    name: cassandra_storage_load
+    type: GAUGE
+
+  - pattern: 'org.apache.cassandra.metrics<type=Client, name=connectedNativeClients><>Value'
+    name: cassandra_connected_clients
+    type: GAUGE
+
+  - pattern: 'org.apache.cassandra.metrics<type=Compaction, name=PendingTasks><>Value'
+    name: cassandra_compaction_pending
+    type: GAUGE

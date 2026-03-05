@@ -1,0 +1,4 @@
+# username    permission
+monitorRole   readonly
+controlRole   readwrite
+cassandra     readwrite
