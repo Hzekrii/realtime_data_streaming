@@ -32,35 +32,13 @@ The system **ingests** user data from an external API, **streams** it through a 
 
 ## 🏗️ System Architecture
 
-### High-Level Architecture
+![System Architecture](./architecture.png)
 
-```
-External API
-     │
-     ▼
-Apache Airflow (DAG)
-     │
-     ▼
-Apache Kafka (Streaming Broker)
-     │
-     ▼
-Spark Structured Streaming
-     │
-     ▼
-Apache Cassandra (NoSQL Storage)
-```
+The architecture is split into two layers:
 
-### Monitoring Layer
+**Pipeline Layer:** API → Airflow → Kafka (+ ZooKeeper, Control Center, Schema Registry) → Spark (Master + Workers) → Cassandra
 
-```
-Kafka Exporter
-      │
-      ▼
-Prometheus
-      │
-      ▼
-Grafana
-```
+**Monitoring Layer:** Kafka Exporter + Node Exporter + Spark Exporter → Prometheus → Grafana
 
 ---
 
